@@ -365,12 +365,15 @@ class OtoParser:
                 return entry
 
         # 3. CV with silence: "- い", "_い", "-い"
-        if not prev_vowel:
-            entry = _match_pref(f"- {clean_lyric}") or \
-                    _match_pref(f"_{clean_lyric}") or \
-                    _match_pref(f"-{clean_lyric}")
-            if entry:
-                return entry
+        # prev_vowel の有無に関わらず常に試す（C++ 版 OtoDatabase::resolveAlias と挙動を一致させる）。
+        # VCV エイリアスが oto.ini に存在しない組み合わせだった場合、ここでフォールバックしないと
+        # タイミング計算（Python側）と実再生（C++側）で異なるエイリアスを参照してしまい、
+        # 連続音の繋ぎ目が破綻する原因になっていた。
+        entry = _match_pref(f"- {clean_lyric}") or \
+                _match_pref(f"_{clean_lyric}") or \
+                _match_pref(f"-{clean_lyric}")
+        if entry:
+            return entry
 
         # 4. Direct exact match
         if lyric in self._db:
@@ -427,14 +430,14 @@ class OtoParser:
         return list(self._db.keys())
 
     def has_vcv(self) -> bool:
-        """VCV エイリアス (スペース、ハイフン、アンダースコア、母音プレフィックス含む) が 1 つ以上あれば True"""
-        return any(
-            " " in alias
-            or alias.startswith("-")
-            or alias.startswith("_")
-            or bool(re.search(r'^[aieuon][-_\s]', alias, re.I))
-            for alias in self._db
-        )
+        """VCV エイリアス（スペース区切りの母音接続エイリアス）が 1 つ以上あれば True。
+
+        注: "- あ" のようなフレーズ先頭の無音接続エイリアスは単独音（CV）バンクにも
+        一般的に存在するため、startswith("-") や startswith("_") を条件に含めると
+        単独音バンクを VCV バンクと誤判定してしまう（実際に発生していたバグ）。
+        C++ 版 OtoDatabase::hasVcv() と判定基準を統一し、スペースの有無のみで判定する。
+        """
+        return any(" " in alias for alias in self._db)
 
     # ------------------------------------------------------------------
     # 内部ユーティリティ
