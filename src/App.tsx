@@ -6,6 +6,8 @@ import {
   Activity, Zap, X, Library, DownloadCloud, HardDrive, Check, Search, FolderPlus, Star, ShieldAlert
 } from 'lucide-react';
 import { bufferToWav } from './utils/audioEncoder';
+import PitchCurveOverlay from './components/PitchCurveOverlay';
+import PitchCurveMiniEditor from './components/PitchCurveMiniEditor';
 
 interface Note {
   id: string;
@@ -122,6 +124,7 @@ export default function App() {
   // Preset Voicebank Download & Delete State
   const [isDownloadingPreset, setIsDownloadingPreset] = useState<string | null>(null);
   const [vbSearchQuery, setVbSearchQuery] = useState<string>('');
+  const [vbCategoryFilter, setVbCategoryFilter] = useState<'all' | 'official' | 'custom'>('all');
 
   const downloadPresetVoicebank = async (presetId: string, name: string, type: string) => {
     setIsDownloadingPreset(presetId);
@@ -1484,6 +1487,13 @@ export default function App() {
                           </div>
                         );
                       })}
+
+                      {/* ピッチカーブオーバーレイ(読み取り専用): ノートと同じ座標系で重ねて描画 */}
+                      <PitchCurveOverlay
+                        notes={notes}
+                        selectedNoteId={selectedNoteId}
+                        tempo={tempo}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1572,24 +1582,50 @@ export default function App() {
                       <div className="border-t border-slate-800 pt-3">
                         <label className="text-slate-300 font-medium block mb-2 flex items-center space-x-1">
                           <AudioWaveform className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>ピッチカーブ (PBS/PBW)</span>
+                          <span>ピッチカーブ (PBS/PBW/PBY)</span>
                         </label>
-                        <div className="space-y-2">
-                          <input
-                            type="text"
-                            value={selectedNote.pbs}
-                            onChange={(e) => updateSelectedNote('pbs', e.target.value)}
-                            placeholder="PBS (e.g. -20;0)"
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono text-[11px]"
-                          />
-                          <input
-                            type="text"
-                            value={selectedNote.pbw}
-                            onChange={(e) => updateSelectedNote('pbw', e.target.value)}
-                            placeholder="PBW (e.g. 50,100)"
-                            className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono text-[11px]"
-                          />
-                        </div>
+
+                        <PitchCurveMiniEditor
+                          pbs={selectedNote.pbs}
+                          pbw={selectedNote.pbw}
+                          pby={selectedNote.pby}
+                          noteLengthTicks={selectedNote.length}
+                          tempo={tempo}
+                          onChange={({ pbs, pbw, pby }) => {
+                            updateSelectedNote('pbs', pbs);
+                            updateSelectedNote('pbw', pbw);
+                            updateSelectedNote('pby', pby);
+                          }}
+                        />
+
+                        <details className="mt-2">
+                          <summary className="text-[10px] text-slate-500 cursor-pointer select-none">
+                            生の値を直接編集 (詳細)
+                          </summary>
+                          <div className="space-y-2 mt-2">
+                            <input
+                              type="text"
+                              value={selectedNote.pbs}
+                              onChange={(e) => updateSelectedNote('pbs', e.target.value)}
+                              placeholder="PBS (e.g. -20;0)"
+                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={selectedNote.pbw}
+                              onChange={(e) => updateSelectedNote('pbw', e.target.value)}
+                              placeholder="PBW (e.g. 50,100)"
+                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={selectedNote.pby}
+                              onChange={(e) => updateSelectedNote('pby', e.target.value)}
+                              placeholder="PBY (e.g. 0,5)"
+                              className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-300 font-mono text-[11px]"
+                            />
+                          </div>
+                        </details>
                       </div>
                     </div>
                   ) : (
@@ -1635,6 +1671,22 @@ export default function App() {
                       onChange={(e) => setVbSearchQuery(e.target.value)}
                       className="pl-9 pr-4 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 w-48 sm:w-60"
                     />
+                  </div>
+
+                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
+                    {(['all', 'official', 'custom'] as const).map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => setVbCategoryFilter(key)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition ${
+                          vbCategoryFilter === key
+                            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                            : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        {key === 'all' ? 'すべて' : key === 'official' ? '内蔵' : 'カスタム'}
+                      </button>
+                    ))}
                   </div>
 
                   <label className="flex items-center space-x-2 text-xs bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg cursor-pointer transition shadow-lg shadow-cyan-900/40">
@@ -1697,7 +1749,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Built-in Preset 1: Official VCV */}
-                  {('Official Voice (VCV)'.toLowerCase().includes(vbSearchQuery.toLowerCase())) && (
+                  {vbCategoryFilter !== 'custom' && ('Official Voice (VCV)'.toLowerCase().includes(vbSearchQuery.toLowerCase())) && (
                     <div
                       className={`bg-slate-900 rounded-xl border p-4 transition-all flex flex-col justify-between space-y-4 relative ${
                         selectedVoicebank === 'Official Voice (VCV)'
@@ -1761,7 +1813,7 @@ export default function App() {
                   )}
 
                   {/* Built-in Preset 2: Standard CV */}
-                  {('Standard Japanese CV'.toLowerCase().includes(vbSearchQuery.toLowerCase())) && (
+                  {vbCategoryFilter !== 'custom' && ('Standard Japanese CV'.toLowerCase().includes(vbSearchQuery.toLowerCase())) && (
                     <div
                       className={`bg-slate-900 rounded-xl border p-4 transition-all flex flex-col justify-between space-y-4 relative ${
                         selectedVoicebank === 'Standard Japanese CV'
@@ -1825,7 +1877,7 @@ export default function App() {
                   )}
 
                   {/* Custom Installed Voicebanks */}
-                  {customVoicebanks
+                  {vbCategoryFilter !== 'official' && customVoicebanks
                     .filter((vb) => vb.name.toLowerCase().includes(vbSearchQuery.toLowerCase()))
                     .map((vb) => {
                       const isSelected = selectedVoicebank === vb.name;
