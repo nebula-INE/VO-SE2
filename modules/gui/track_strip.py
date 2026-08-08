@@ -20,8 +20,8 @@ DAWやSynthesizer Vのように、トラックごとにMute/Solo/Volume(フェ�
   MainWindow側にコールバックして全体の見た目を更新してもらう。
 """
 from PySide6.QtWidgets import (
-    QWidget, QFrame, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
-    QPushButton, QSlider, QSizePolicy
+    QFrame, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit,
+    QPushButton, QSlider
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor

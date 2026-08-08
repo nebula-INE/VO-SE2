@@ -20,7 +20,7 @@ main_window.py 内の VoiceCardWidget / VoiceCardGallery クラスを
 import os
 from PySide6.QtWidgets import (
     QFrame, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout,
-    QScrollArea, QLineEdit, QPushButton, QButtonGroup, QSizePolicy
+    QScrollArea, QLineEdit, QPushButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QColor
