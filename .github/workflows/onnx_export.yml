@@ -26,8 +26,7 @@ jobs:
 
       - name: Download model file from Google Drive
         run: |
-          # File ID: 1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE
-          gdown --id 1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE -O downloaded_model.pt
+          gdown "https://drive.google.com/uc?id=1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE" -O downloaded_model.pt
 
       - name: Convert model to ONNX
         run: |
