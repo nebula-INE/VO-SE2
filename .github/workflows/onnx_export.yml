@@ -33,6 +33,24 @@ jobs:
           "
           ls -lh downloaded_model.pt
 
+      - name: Validate downloaded file
+        run: |
+          # ダウンロードされたファイルの先頭を確認し、HTML(エラーページ)でないかチェック
+          if head -c 200 downloaded_model.pt | grep -qi "<html\|<!DOCTYPE"; then
+            echo "エラー: HTMLファイルがダウンロードされました。Google Driveの共有設定を「リンクを知っている全員が閲覧可」に変更してください。"
+            echo "--- ダウンロード内容の先頭 ---"
+            head -c 500 downloaded_model.pt
+            exit 1
+          fi
+          file downloaded_model.pt
+          FILESIZE=$(stat -c%s downloaded_model.pt)
+          echo "Downloaded file size: $FILESIZE bytes"
+          if [ "$FILESIZE" -lt 10000 ]; then
+            echo "エラー: ファイルサイズが小さすぎます。ダウンロードに失敗している可能性があります。"
+            cat downloaded_model.pt
+            exit 1
+          fi
+
       - name: Convert model to ONNX
         run: |
           python -c "
