@@ -275,8 +275,10 @@ class VoiceCardGallery(QWidget):
         # 1. グリッドから全ウィジェットを外す（削除はしない・使い回す）
         while self.grid.count() > 0:
             item = self.grid.takeAt(0)
-            if item is not None and item.widget() is not None:
-                item.widget().setParent(None)
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None) 
 
         # 2. 合致するカードだけ拾う
         visible_ids = [
