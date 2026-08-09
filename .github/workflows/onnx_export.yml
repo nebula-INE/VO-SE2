@@ -26,7 +26,11 @@ jobs:
 
       - name: Download model file from Google Drive
         run: |
-          gdown "https://drive.google.com/uc?id=1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE" -O downloaded_model.pt
+          # --fuzzy を指定して共有リンクから直接実ファイルをダウンロード
+          gdown "https://drive.google.com/file/d/1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE/view?usp=sharing" --fuzzy -O downloaded_model.pt
+          
+          # ダウンロードしたファイルのサイズ確認 (HTMLでなく数十MB〜GB単位あるか確認)
+          ls -lh downloaded_model.pt
 
       - name: Convert model to ONNX
         run: |
