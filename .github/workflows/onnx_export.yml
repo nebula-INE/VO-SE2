@@ -22,14 +22,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install gdown torch torchvision onnx
+          pip install "gdown>=5.1.0" torch torchvision onnx
 
       - name: Download model file from Google Drive
         run: |
           python -c "
           import gdown
-          url = 'https://drive.google.com/file/d/1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE/view?usp=sharing'
-          gdown.download(url, 'downloaded_model.pt', quiet=False, fuzzy=True)
+          file_id = '1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE'
+          gdown.download(id=file_id, output='downloaded_model.pt', quiet=False)
           "
           ls -lh downloaded_model.pt
 
