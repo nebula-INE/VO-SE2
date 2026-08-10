@@ -13,36 +13,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-          cache: 'pip'
-
-      - name: Install dependencies
+      - name: Download ONNX model files via Google Drive API
+        env:
+          GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
         run: |
-          python -m pip install --upgrade pip
-          pip install "gdown>=5.1.0"
+          set -e
 
-      - name: Download ONNX model files from Google Drive
-        run: |
-          python -c "
-          import gdown
+          download_file() {
+            FILE_ID="$1"
+            OUT_NAME="$2"
+            URL="https://www.googleapis.com/drive/v3/files/${FILE_ID}?alt=media&key=${GDRIVE_API_KEY}"
+            echo "Downloading ${OUT_NAME} ..."
+            HTTP_CODE=$(curl -L -o "${OUT_NAME}" -w "%{http_code}" -s "${URL}")
+            if [ "${HTTP_CODE}" != "200" ]; then
+              echo "エラー: ${OUT_NAME} のダウンロードに失敗しました (HTTP ${HTTP_CODE})"
+              cat "${OUT_NAME}"
+              exit 1
+            fi
+          }
 
-          # 本体ファイル (.onnx)
-          gdown.download(id='1Tvvucl4T0xxDy-8iRwhCncZ5ekZbwR_G', output='bigvgan_generator.onnx', quiet=False)
+          download_file "1Tvvucl4T0xxDy-8iRwhCncZ5ekZbwR_G" "bigvgan_generator.onnx"
+          download_file "1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE" "bigvgan_generator.onnx.data"
 
-          # 外部データファイル (.onnx.data) ※ 本体と同じベース名にする必要あり
-          gdown.download(id='1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE', output='bigvgan_generator.onnx.data', quiet=False)
-          "
           ls -lh bigvgan_generator.onnx bigvgan_generator.onnx.data
 
       - name: Validate downloaded files
         run: |
           for f in bigvgan_generator.onnx bigvgan_generator.onnx.data; do
-            # HTMLエラーページが降ってきていないかチェック
-            if head -c 200 "$f" | grep -qi "<html\|<!DOCTYPE\|<?xml"; then
-              echo "エラー: $f がHTML/XMLのエラーページになっています。Google Driveの共有設定を確認してください。"
+            if head -c 200 "$f" | grep -qi "<html\|<!DOCTYPE\|<?xml\|\"error\""; then
+              echo "エラー: $f がエラーページ/JSONエラーになっています。"
               echo "--- $f の内容(先頭500バイト) ---"
               head -c 500 "$f"
               exit 1
@@ -50,7 +49,7 @@ jobs:
             FILESIZE=$(stat -c%s "$f")
             echo "$f size: $FILESIZE bytes"
             if [ "$FILESIZE" -lt 10000 ]; then
-              echo "エラー: $f のサイズが小さすぎます。ダウンロードに失敗している可能性があります。"
+              echo "エラー: $f のサイズが小さすぎます。"
               cat "$f"
               exit 1
             fi
