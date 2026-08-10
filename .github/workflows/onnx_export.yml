@@ -1,4 +1,4 @@
-name: Export ONNX Model from Google Drive Source
+name: Fetch ONNX Model from Google Drive
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-convert:
+  fetch-onnx-model:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,71 +22,54 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install "gdown>=5.1.0" torch torchvision onnx
+          pip install "gdown>=5.1.0"
 
-      - name: Download model file from Google Drive
+      - name: Download ONNX model files from Google Drive
         run: |
           python -c "
           import gdown
-          file_id = '1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE'
-          gdown.download(id=file_id, output='downloaded_model.pt', quiet=False)
+
+          # 本体ファイル (.onnx)
+          gdown.download(id='1Tvvucl4T0xxDy-8iRwhCncZ5ekZbwR_G', output='bigvgan_generator.onnx', quiet=False)
+
+          # 外部データファイル (.onnx.data) ※ 本体と同じベース名にする必要あり
+          gdown.download(id='1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE', output='bigvgan_generator.onnx.data', quiet=False)
           "
-          ls -lh downloaded_model.pt
+          ls -lh bigvgan_generator.onnx bigvgan_generator.onnx.data
 
-      - name: Validate downloaded file
+      - name: Validate downloaded files
         run: |
-          # ダウンロードされたファイルの先頭を確認し、HTML(エラーページ)でないかチェック
-          if head -c 200 downloaded_model.pt | grep -qi "<html\|<!DOCTYPE"; then
-            echo "エラー: HTMLファイルがダウンロードされました。Google Driveの共有設定を「リンクを知っている全員が閲覧可」に変更してください。"
-            echo "--- ダウンロード内容の先頭 ---"
-            head -c 500 downloaded_model.pt
-            exit 1
-          fi
-          file downloaded_model.pt
-          FILESIZE=$(stat -c%s downloaded_model.pt)
-          echo "Downloaded file size: $FILESIZE bytes"
-          if [ "$FILESIZE" -lt 10000 ]; then
-            echo "エラー: ファイルサイズが小さすぎます。ダウンロードに失敗している可能性があります。"
-            cat downloaded_model.pt
-            exit 1
-          fi
+          for f in bigvgan_generator.onnx bigvgan_generator.onnx.data; do
+            # HTMLエラーページが降ってきていないかチェック
+            if head -c 200 "$f" | grep -qi "<html\|<!DOCTYPE\|<?xml"; then
+              echo "エラー: $f がHTML/XMLのエラーページになっています。Google Driveの共有設定を確認してください。"
+              echo "--- $f の内容(先頭500バイト) ---"
+              head -c 500 "$f"
+              exit 1
+            fi
+            FILESIZE=$(stat -c%s "$f")
+            echo "$f size: $FILESIZE bytes"
+            if [ "$FILESIZE" -lt 10000 ]; then
+              echo "エラー: $f のサイズが小さすぎます。ダウンロードに失敗している可能性があります。"
+              cat "$f"
+              exit 1
+            fi
+          done
 
-      - name: Convert model to ONNX
+      - name: Verify ONNX model loads correctly
         run: |
+          pip install onnx
           python -c "
-          import torch
-
-          print('Loading model...')
-          try:
-              model = torch.jit.load('downloaded_model.pt')
-          except Exception:
-              # PyTorch 2.6+ の仕様変更に対応するため weights_only=False を指定
-              model = torch.load('downloaded_model.pt', map_location='cpu', weights_only=False)
-          
-          if hasattr(model, 'eval'):
-              model.eval()
-
-          # モデルの入力シェイプに合わせて変更してください
-          dummy_input = torch.randn(1, 3, 224, 224)
-
-          onnx_path = 'output_model.onnx'
-          print(f'Exporting to {onnx_path}...')
-          torch.onnx.export(
-              model,
-              dummy_input,
-              onnx_path,
-              export_params=True,
-              opset_version=14,
-              do_constant_folding=True,
-              input_names=['input'],
-              output_names=['output'],
-              dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
-          )
-          print('Export successful!')
+          import onnx
+          model = onnx.load('bigvgan_generator.onnx')
+          onnx.checker.check_model(model)
+          print('ONNX model is valid.')
           "
 
       - name: Upload ONNX artifact
         uses: actions/upload-artifact@v4
         with:
           name: onnx-model
-          path: output_model.onnx
+          path: |
+            bigvgan_generator.onnx
+            bigvgan_generator.onnx.data
