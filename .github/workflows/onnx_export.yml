@@ -33,7 +33,7 @@ jobs:
           }
 
           download_file "1Tvvucl4T0xxDy-8iRwhCncZ5ekZbwR_G" "bigvgan_generator.onnx"
-          download_file "1vns9vwDBVtbhfLazBgagvA-aWoUzkpTE" "bigvgan_generator.onnx.data"
+          download_file "1d_KU_nJkOzuhv5sGecTOt700nsHwtiLx" "bigvgan_generator.onnx.data"
 
           ls -lh bigvgan_generator.onnx bigvgan_generator.onnx.data
 
