@@ -10,7 +10,6 @@
 #   2. build-juce-plugin  — JUCEプラグインをCMakeでビルド + コード署名/公証
 #   3. test-juce-plugin   — ビルド成果物の基本的なプラグイン検証テスト
 #   4. smoke-linux        — 既存のLinux GUI依存パッケージ確認
-
 name: "🚀 Release VO-SE vocal (Official Edition)"
 on:
   push:
