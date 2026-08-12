@@ -58,6 +58,7 @@ class VoseCoreManager:
             try:
                 self.lib = ctypes.CDLL(path)
                 self._setup_prototypes()
+                self._load_bigvgan_model()
                 print(f"[OK] VOSE Core Engine Loaded: {path}")
                 self._initialized = True
                 return
@@ -103,6 +104,34 @@ class VoseCoreManager:
             self.lib.synthesize_by_name.restype = ctypes.POINTER(ctypes.c_float)
         except AttributeError:
             pass  # オプションのシンボルなので警告不要
+
+        try:
+            self.lib.set_bigvgan_model.argtypes = [ctypes.c_char_p]
+            self.lib.set_bigvgan_model.restype = None
+        except AttributeError:
+            pass  # 無印版ビルドにはシンボルが無いので警告不要
+
+    def _load_bigvgan_model(self) -> None:
+        """
+        models/bigvgan/bigvgan_generator.onnx をC++コアへ登録する。
+        無印版ビルド（VOSE_PRO未定義）では set_bigvgan_model 自体がシンボル未export
+        の可能性があるため、存在チェックしてから呼ぶ。モデルが無い場合はWORLD直接出力
+        にフォールバックする（C++側の g_bigvgan_session が未設定のまま）。
+        """
+        if not self.lib or not hasattr(self.lib, "set_bigvgan_model"):
+            return
+
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        onnx_path = os.path.join(repo_root, "models", "bigvgan", "bigvgan_generator.onnx")
+
+        if os.path.exists(onnx_path):
+            try:
+                self.lib.set_bigvgan_model(onnx_path.encode("utf-8"))
+                print(f"[OK] BigVGAN model loaded: {onnx_path}")
+            except Exception as e:
+                print(f"[Warning] Failed to load BigVGAN model ({onnx_path}): {e}")
+        else:
+            print(f"[Info] BigVGAN model not found at {onnx_path}; using WORLD output directly.")
 
     def get_lib(self) -> Optional[ctypes.CDLL]:
         if not self._initialized:
