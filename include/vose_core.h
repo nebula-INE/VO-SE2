@@ -78,6 +78,10 @@ extern "C" {
     // 3. エンジン管理
     DLLEXPORT float get_engine_version(void);
     DLLEXPORT void clear_engine_cache(void);
+
+    // 4. BigVGAN ボコーダー（Pro版のみ有効。無印版ビルドでは呼んでも無視される）
+    //    onnx_path が nullptr または空文字なら BigVGAN を無効化し、WORLD直接出力に戻す。
+    DLLEXPORT void set_bigvgan_model(const char* onnx_path);
 }
 
 #endif // VOSE_CORE_H
