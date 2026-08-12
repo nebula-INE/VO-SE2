@@ -23,6 +23,7 @@ constexpr const T& clamp(const T& v, const T& lo, const T& hi) {
 #include <sstream>
 #include <cstring>
 #include <cstdint>
+#include <cstdio>
 #include <future>
 #include <thread>
 #include <mutex>
@@ -1389,9 +1390,13 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
     // パイプライン:
     //   full_song_buffer (WORLD出力, double[])
     //     → pcm_float (float[], [-1,1] 正規化)
-    //     → mel_filterbank (80bin, win=1024, hop=256, 44100Hz)
-    //     → BigVGAN推論 (256フレームchunk, 25msオーバーラップ)
+    //     → mel_filterbank (128bin, win=2048, hop=512, 44100Hz)
+    //     → BigVGAN推論 (128フレームchunk, 25msオーバーラップ)
     //     → overlap-add → wavwrite
+    //
+    // ※ models/bigvgan/bigvgan_generator.onnx / bigvgan/config.json の
+    //   実仕様に合わせたパラメータ（旧: 80bin/1024fft/256hopから変更）。
+    //   入出力テンソル名も実モデルに合わせて "mel" / "audio"。
     //
     // BigVGANが無効なら従来通り WORLD出力をそのまま wavwrite する。
     // ----------------------------------------------------------------
@@ -1411,17 +1416,22 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
             // ----------------------------------------------------------
             // ステップ2: メルスペクトログラム変換
             //
-            // パラメータ (BigVGAN学習時の標準値):
+            // パラメータ (bigvgan/config.json の実値に一致させる):
             //   sample_rate = 44100
-            //   n_fft       = 1024
-            //   hop_size    = 256
-            //   n_mels      = 80
+            //   n_fft       = 2048
+            //   win_size    = 2048
+            //   hop_size    = 512
+            //   n_mels      = 128
             //   fmin        = 0 Hz
-            //   fmax        = 22050 Hz (Nyquist)
+            //   fmax        = 22050 Hz (Nyquist, config.json では null)
+            //
+            // 振幅(magnitude)スペクトルを使用（torch.stft → sqrt(re²+im²)相当）。
+            // パワースペクトル(re²+im²のみ)ではBigVGAN学習時の分布とズレるため誤り。
+            // フレーム境界は reflect-padding（torch.stft(center=True)と同じ挙動）。
             // ----------------------------------------------------------
-            constexpr int   kNFft    = 1024;
-            constexpr int   kHop     = 256;
-            constexpr int   kNMels   = 80;
+            constexpr int   kNFft    = 2048;
+            constexpr int   kHop     = 512;
+            constexpr int   kNMels   = 128;
             constexpr float kFMin    = 0.0f;
             constexpr float kFMax    = 22050.0f;
             constexpr float kSR      = 44100.0f;
@@ -1435,8 +1445,8 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
                 window[i] = 0.5f * (1.0f - std::cos(2.0f * static_cast<float>(M_PI) * i / kNFft));
 
             // メルフィルタバンク行列を構築（n_mels × (n_fft/2+1)）
-            // 正規化: 各フィルタをその帯域幅で割ることで、
-            // 低周波ビンの過大評価を防ぐ（BigVGAN学習時と同じ分布にする）
+            // 正規化: 各フィルタをその帯域幅で割る slaney 正規化
+            // （librosa.filters.mel のデフォルトと同じ。BigVGAN学習側と一致させる）
             const int spec_bins_fft = kNFft / 2 + 1;
             auto hz_to_mel = [](float hz) { return 2595.0f * std::log10(1.0f + hz / 700.0f); };
             auto mel_to_hz = [](float mel) { return 700.0f * (std::pow(10.0f, mel / 2595.0f) - 1.0f); };
@@ -1465,14 +1475,24 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
             std::vector<std::vector<float>> mel_spec(n_frames, std::vector<float>(kNMels, kLogFloor));
             {
                 std::vector<float> frame_buf(kNFft, 0.0f);
-                std::vector<float> power(spec_bins_fft);
+                std::vector<float> mag(spec_bins_fft);
                 std::vector<float> re(kNFft), im(kNFft);
+
+                // reflect-pad で参照するためのヘルパー（torch.stft(center=True, pad_mode="reflect")と同じ）
+                auto reflect_sample = [&](int s) -> float {
+                    if (n_src <= 1) return (n_src == 1) ? pcm[0] : 0.0f;
+                    while (s < 0 || s >= n_src) {
+                        if (s < 0)        s = -s;
+                        if (s >= n_src)   s = 2 * (n_src - 1) - s;
+                    }
+                    return pcm[s];
+                };
 
                 for (int t = 0; t < n_frames; ++t) {
                     const int center = t * kHop;
                     for (int i = 0; i < kNFft; ++i) {
                         const int s = center - kNFft/2 + i;
-                        frame_buf[i] = (s >= 0 && s < n_src) ? pcm[s] * window[i] : 0.0f;
+                        frame_buf[i] = reflect_sample(s) * window[i];
                     }
 
                     // Cooley-Tukey 基数2 DIT FFT（正しい順序）
@@ -1505,13 +1525,14 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
                         }
                     }
 
+                    // 振幅（magnitude）スペクトル：sqrt(re²+im²)。パワーではない。
                     for (int k = 0; k < spec_bins_fft; ++k)
-                        power[k] = re[k]*re[k] + im[k]*im[k];
+                        mag[k] = std::sqrt(re[k]*re[k] + im[k]*im[k] + 1e-9f);
 
                     for (int m = 0; m < kNMels; ++m) {
                         float val = 0.0f;
                         for (int k = 0; k < spec_bins_fft; ++k)
-                            val += mel_fb[m][k] * power[k];
+                            val += mel_fb[m][k] * mag[k];
                         mel_spec[t][m] = std::log(std::max(val, kLogFloor));
                     }
                 }
@@ -1520,12 +1541,12 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
             // ----------------------------------------------------------
             // ステップ3: BigVGAN推論
             //
-            // chunk_frames = 256  → 65536サンプル出力
-            // overlap_frames = 25ms @ hop=256 → ceil(25ms*44100/256) = 4フレーム
+            // chunk_frames = 128  → 65536サンプル出力 (hop=512換算)
+            // overlap_frames = 25ms @ hop=512 → ceil(25ms*44100/512) = 3フレーム
             // オーバーラップ部は raised-cosine でブレンド
             // ----------------------------------------------------------
-            constexpr int kChunkFrames   = 256;
-            constexpr int kOverlapFrames = 4;   // 25ms相当（実測で十分な連続性）
+            constexpr int kChunkFrames   = 128;
+            constexpr int kOverlapFrames = 3;   // 25ms相当（実測で十分な連続性）
             constexpr int kChunkSamples  = kChunkFrames * kHop;  // 65536
             constexpr int kOverlapSamples = kOverlapFrames * kHop;
 
@@ -1534,15 +1555,16 @@ static void execute_render_impl(NoteEvent* notes, int note_count, const char* ou
             Ort::MemoryInfo mem_info =
                 Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 
-            const char* input_name  = "input_mel";
-            const char* output_name = "output_audio";
+            // 実ONNXモデルの入出力テンソル名（"input_mel"/"output_audio"ではない）
+            const char* input_name  = "mel";
+            const char* output_name = "audio";
 
             std::vector<float> chunk_mel(kNMels * kChunkFrames);
 
             for (int t_start = 0; t_start < n_frames; t_start += kChunkFrames - kOverlapFrames) {
                 if (is_cancelled()) return;
 
-                // メルchunkを [1, 80, 256] に充填（足りない部分は末尾フレームで埋める）
+                // メルchunkを [1, 128, 128] に充填（足りない部分は末尾フレームで埋める）
                 for (int t = 0; t < kChunkFrames; ++t) {
                     const int src_t = std::min(t_start + t, n_frames - 1);
                     for (int m = 0; m < kNMels; ++m)
@@ -1678,7 +1700,13 @@ extern "C" DLLEXPORT void set_bigvgan_model(const char* onnx_path) {
 #else
         g_bigvgan_session = std::make_unique<Ort::Session>(g_ort_env, onnx_path, g_ort_opts);
 #endif
+    } catch (const std::exception& e) {
+        // モデルロード失敗時はWORLD直接出力にフォールバック。
+        // Git LFSポインタ未取得（.onnx.data が実バイナリでない）等が典型的な原因。
+        fprintf(stderr, "[BigVGAN] Failed to load model '%s': %s\n", onnx_path, e.what());
+        g_bigvgan_session.reset();
     } catch (...) {
+        fprintf(stderr, "[BigVGAN] Failed to load model '%s': unknown error\n", onnx_path);
         g_bigvgan_session.reset();
     }
 #else
