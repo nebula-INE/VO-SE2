@@ -89,6 +89,9 @@ def bind_all(lib: ctypes.CDLL) -> None:
     _bind(lib, "clear_engine_cache", [], None)
     _bind(lib, "init_official_engine", [], None)
 
+    # BigVGAN ボコーダー（Pro版のみ有効）。onnx_path が None なら無効化。
+    _bind(lib, "set_bigvgan_model", [ctypes.c_char_p], None)
+
     # main.py VoSeEngine が呼ぶ process_voice（旧 API、互換性のため残す）
     _bind(lib, "process_voice", [
         ctypes.POINTER(ctypes.c_float),
